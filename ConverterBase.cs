@@ -14,11 +14,11 @@ namespace SMAInteropConverter
         protected CodeTypeDeclaration Klass { get; }
         protected CodeNamespace Namespace { get; }
 
-        public ConverterBase(string klass)
+        public ConverterBase(string klass, string ns)
         {
             Unit = new CodeCompileUnit();
             Klass = new CodeTypeDeclaration(klass);
-            Namespace = new CodeNamespace(klass + "Namespace");
+            Namespace = new CodeNamespace(ns);
             Klass.IsClass = true;
             Klass.TypeAttributes = TypeAttributes.Public;
             Namespace.Types.Add(Klass);

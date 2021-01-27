@@ -18,6 +18,11 @@ namespace SMAInteropConverter.Helpers
             return type.Name.AsAlphabetic() + "Svc";
         }
 
+        public static string GetSvcNamespace(this Type type)
+        {
+            return type.Name.AsAlphabetic() + "Namespace";
+        }
+
         public static List<MethodInfo> GetConvertableMethods(this Type type)
         {
             // Skips out params

@@ -27,7 +27,7 @@ namespace SMAInteropConverter
         private bool AddedMethods { get; set; }
 
         public Converter(List<RegistryType> regTypes, Type wrapped)
-            : base(wrapped.Name.AsAlphabetic() + "Svc")
+            : base(wrapped.GetSvcName(), wrapped.GetSvcNamespace())
         {
             this.RegPairs = regTypes;
             this.Wrapped = wrapped;
@@ -81,10 +81,10 @@ namespace SMAInteropConverter
             return CodeDomEx.CreateThisFieldRef(field.Name);
         }
 
-        public CompilerResults Compile()
+        public CompilerResults Compile(IEnumerable<string> referencedAssemblies)
         {
             Klass.Members.Add(Constructor);
-
+            Unit.ReferencedAssemblies.AddRange(referencedAssemblies.ToArray());
             using (var provider = new CSharpCodeProvider())
             {
                 var parameters = new CompilerParameters { GenerateInMemory = true, GenerateExecutable = false };
