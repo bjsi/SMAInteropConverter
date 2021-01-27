@@ -7,9 +7,44 @@ namespace SMAInteropConverter.Helpers
 {
     public static class TypeEx
     {
+        public static bool IsIEnumerableType(this Type type)
+        {
+            var iFaces = type.GetInterfaces();
+            foreach (Type interfaceType in iFaces)
+            {
+                if (interfaceType.IsGenericType &&
+                    interfaceType.GetGenericTypeDefinition()
+                    == typeof(IEnumerable<>))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public static HashSet<Type> GetIEnumerableTypeArgs(this Type type)
+        {
+            foreach (Type interfaceType in type.GetInterfaces())
+            {
+                if (interfaceType.IsGenericType &&
+                    interfaceType.GetGenericTypeDefinition()
+                    == typeof(IEnumerable<>))
+                {
+                    return type.GetGenericArguments().ToHashSet();
+                }
+            }
+            return new HashSet<Type>();
+        }
+
         public static bool IsRegMember(this Type type, List<RegistryType> regTypes, out RegistryType regType)
         {
             regType = regTypes.Where(x => x.Member == type).FirstOrDefault();
+            return regType != null;
+        }
+
+        public static bool IsReg(this Type type, List<RegistryType> regTypes, out RegistryType regType)
+        {
+            regType = regTypes.Where(x => x.Registry == type).FirstOrDefault();
             return regType != null;
         }
 

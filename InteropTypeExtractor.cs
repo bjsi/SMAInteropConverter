@@ -25,14 +25,14 @@ namespace SMAInteropConverter
         {
             var ret = new List<RegistryType>();
             var props = Registry.GetProperties();
-            var types = props?.Select(x => x.PropertyType).ToList();
-            foreach (var regType in types)
+            foreach (var prop in props)
             {
-                if (regType.Name.Contains("Component")) // TODO
+                var type = prop.PropertyType;
+                if (type.Name.Contains("Component")) // TODO
                     continue;
 
-                var memberType = GetMemberType(regType);
-                ret.Add(new RegistryType(regType, memberType));
+                var memberType = GetMemberType(type);
+                ret.Add(new RegistryType(type, memberType, prop.Name));
             }
             return ret;
         }

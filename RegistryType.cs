@@ -5,6 +5,7 @@ namespace SMAInteropConverter
 {
     public class RegistryType
     {
+        public string Name { get; }
         public Type Registry { get; }
         public Type Member { get; }
         public Type Key { get; } = typeof(int);
@@ -13,8 +14,9 @@ namespace SMAInteropConverter
             return new CodeIndexerExpression(regRef, new CodeArgumentReferenceExpression(paramName));
         }
 
-        public RegistryType(Type reg, Type mem) 
+        public RegistryType(Type reg, Type mem, string name) 
         {
+            this.Name = name;
             this.Registry = reg;
             this.Member = mem;
         }

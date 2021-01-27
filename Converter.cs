@@ -31,8 +31,17 @@ namespace SMAInteropConverter
         {
             this.RegPairs = regTypes;
             this.Wrapped = wrapped;
-            if (!Wrapped.IsRegMember(regTypes, out _))
+
+            // TODO: UI 
+            if (!Wrapped.IsRegMember(regTypes, out _) && !Wrapped.IsReg(regTypes, out _) && !Wrapped.Name.Contains("IElementWdw"))
                 WrappedRef = AddConstructorInitializedField(Wrapped);
+
+            RegistryType regType;
+            if (Wrapped.IsRegMember(regTypes, out regType) || Wrapped.IsReg(regTypes, out regType))
+                WrappedRef = AddDirectlyInitializedField(regType.Registry, $"Registry.{regType.Name}");
+
+            if (Wrapped.Name.Contains("IElementWdw"))
+                WrappedRef = AddDirectlyInitializedField(Wrapped, $"UI.ElementWdw");
         }
 
         public string GenerateSource()
@@ -60,6 +69,14 @@ namespace SMAInteropConverter
                 : null;
 
             return field != null;
+        }
+
+        private CodeFieldReferenceExpression AddDirectlyInitializedField(Type type, string svcString)
+        {
+            var field = CodeDomEx.CreatePrivateField(Namer.GetName(), type);
+            field.InitExpression = new CodeSnippetExpression("SuperMemoAssistant.Services.Svc.SM." + svcString);
+            Klass.Members.Add(field);
+            return CodeDomEx.CreateThisFieldRef(field.Name);
         }
 
         private CodeFieldReferenceExpression AddConstructorInitializedField(Type type)
@@ -129,6 +146,32 @@ namespace SMAInteropConverter
             return new CodeVariableReferenceExpression(thisVarDeclaration.Name);
         }
 
+        // TODO: IEnumerable<IElement> etc.
+        private void ConvertReturnedProperty(CodeMemberMethod method, Type retType, CodePropertyReferenceExpression prop)
+        {
+            if (retType.IsRegMember(RegPairs, out var regPair))
+            {
+                var idRef = new CodePropertyReferenceExpression(prop, "Id");
+                method.Statements.Add(new CodeMethodReturnStatement(idRef));
+                method.ReturnType = new CodeTypeReference(typeof(int));
+            }
+            else if (retType.Name == "IEnumerable`1") // TODO
+            {
+                //if (retType.GetIEnumerableTypeArgs().First().IsRegMember(RegPairs, out _))
+                //{
+                //    method.Statements.Add(new CodeMethodReturnStatement(new CodeSnippetExpression()));
+                //}
+                //else
+                //{
+                    method.Statements.Add(new CodeMethodReturnStatement(prop));
+                //}
+            }
+            else
+            {
+                method.Statements.Add(new CodeMethodReturnStatement(prop));
+            }
+        }
+
         private void ConvertGetter(MethodInfo getter)
         {
             var retType = getter.ReturnType;
@@ -145,12 +188,12 @@ namespace SMAInteropConverter
 
                 var localInstanceRef = GetRegistryMemberFromRegistryField(method, regPair, regRef);
                 var propertyReference = new CodePropertyReferenceExpression(localInstanceRef, propertyName);
-                method.Statements.Add(new CodeMethodReturnStatement(propertyReference));
+                ConvertReturnedProperty(method, retType, propertyReference);
             }
             else
             {
                 var wrapPropRef = new CodePropertyReferenceExpression(WrappedRef, propertyName);
-                method.Statements.Add(new CodeMethodReturnStatement(wrapPropRef));
+                ConvertReturnedProperty(method, retType, wrapPropRef);
             }
 
             Klass.Members.Add(method);
@@ -273,6 +316,7 @@ namespace SMAInteropConverter
             var method = CodeDomEx.CreateMethod(info.Name, info.ReturnType);
             var targetMethodRef = new CodeMethodReferenceExpression(WrappedRef, info.Name);
             var targetMethodArgs = new List<CodeExpression>();
+            var retType = info.ReturnType;
 
             if (Wrapped.IsRegMember(RegPairs, out var regPair))
             {
@@ -304,11 +348,31 @@ namespace SMAInteropConverter
                 }
             }
 
-            method.Statements.Add(
-                new CodeMethodReturnStatement(
-                new CodeMethodInvokeExpression(targetMethodRef, targetMethodArgs.ToArray())));
-
+            var invoke = new CodeMethodInvokeExpression(targetMethodRef, targetMethodArgs.ToArray());
+            ConvertReturnedInvoke(method, retType, invoke);
             Klass.Members.Add(method);
+        }
+
+        private void ConvertReturnedInvoke(CodeMemberMethod method, Type retType, CodeMethodInvokeExpression invoke)
+        {
+            if (retType.IsRegMember(RegPairs, out _))
+            {
+                var decl = new CodeVariableDeclarationStatement(new CodeTypeReference(typeof(int)), Namer.GetName());
+                var varRef = new CodeVariableReferenceExpression(decl.Name);
+                var assignment = new CodeAssignStatement(varRef, invoke);
+                var prop = new CodePropertyReferenceExpression(varRef, "Id");
+                method.Statements.Add(decl);
+                method.Statements.Add(assignment);
+                method.Statements.Add(new CodeMethodReturnStatement(prop));
+                method.ReturnType = new CodeTypeReference(typeof(int));
+            }
+            else
+            {
+                method.Statements.Add(
+                    new CodeMethodReturnStatement(
+                        invoke
+                    ));
+            }
         }
 
         public Converter WithMethods()
