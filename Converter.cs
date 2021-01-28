@@ -25,12 +25,20 @@ namespace SMAInteropConverter
         private bool AddedSetters { get; set; }
         private bool AddedGetters { get; set; }
         private bool AddedMethods { get; set; }
+        private bool AddedEvents { get; set; }
 
-        public Converter(List<RegistryType> regTypes, Type wrapped)
+        private CompilerParameters CompilerParams { get; } = new CompilerParameters { GenerateInMemory = true, GenerateExecutable = false };
+        private Action<string> Logger { get; }
+
+        public Converter(List<RegistryType> regTypes, Type wrapped, Action<string> logger = null)
             : base(wrapped.GetSvcName(), wrapped.GetSvcNamespace())
         {
             this.RegPairs = regTypes;
             this.Wrapped = wrapped;
+
+            Logger = logger == null
+                ? s => Console.WriteLine(s)
+                : logger;
 
             // TODO: UI 
             if (!Wrapped.IsRegMember(regTypes, out _) && !Wrapped.IsReg(regTypes, out _) && !Wrapped.Name.Contains("IElementWdw"))
@@ -104,20 +112,19 @@ namespace SMAInteropConverter
             Unit.ReferencedAssemblies.AddRange(referencedAssemblies.ToArray());
             using (var provider = new CSharpCodeProvider())
             {
-                var parameters = new CompilerParameters { GenerateInMemory = true, GenerateExecutable = false };
-                var compilerResults = provider.CompileAssemblyFromDom(parameters, Unit);
+                var compilerResults = provider.CompileAssemblyFromDom(CompilerParams, Unit);
                 if (compilerResults.Errors.HasErrors)
                 {
                     foreach (var compilerError in compilerResults.Errors)
                     {
                         var error = compilerError.ToString();
-                        Console.WriteLine(error);
+                        Logger(error);
                     }
 
                     throw new InvalidOperationException($"Service compilation failed with {compilerResults.Errors.Count} errors");
                 }
 
-                Console.WriteLine("Service compiled successfully");
+                Logger("Service compiled successfully");
                 return compilerResults;
             }
         }
@@ -357,7 +364,7 @@ namespace SMAInteropConverter
         {
             if (retType.IsRegMember(RegPairs, out _))
             {
-                var decl = new CodeVariableDeclarationStatement(new CodeTypeReference(typeof(int)), Namer.GetName());
+                var decl = new CodeVariableDeclarationStatement(new CodeTypeReference(retType), Namer.GetName());
                 var varRef = new CodeVariableReferenceExpression(decl.Name);
                 var assignment = new CodeAssignStatement(varRef, invoke);
                 var prop = new CodePropertyReferenceExpression(varRef, "Id");
@@ -375,6 +382,117 @@ namespace SMAInteropConverter
             }
         }
 
+        private void AddVoidActionEvent(CodeMemberEvent newEvent, CodeMemberMethod method)
+        {
+            // Set the return type of the event
+            newEvent.Type = new CodeTypeReference("System.EventHandler");
+
+            // Add the code to invoke the event from the method
+            // when the event in the wrapped object fires
+
+            CodeEventReferenceExpression newEventRef = new CodeEventReferenceExpression(
+              new CodeThisReferenceExpression(), newEvent.Name);
+
+            var invoke = new CodeDelegateInvokeExpression(newEventRef,
+                new CodeExpression[] { new CodeSnippetExpression("null"), new CodeSnippetExpression("null") });
+            method.Statements.Add(invoke);
+        }
+
+        private void AddActionEventWithRetVal(CodeMemberEvent newEvent, Type eventType, CodeMemberMethod method)
+        {
+            // Set the return type of the event
+            newEvent.Type = new CodeTypeReference("System.EventHandler",
+              new CodeTypeReference[] { new CodeTypeReference(eventType) });
+
+            // Add the code to invoke the event from the method
+            // when the event in the wrapped object fires
+
+            // Add event parameters to the method
+
+            var obj = new CodeParameterDeclarationExpression(eventType, "e");
+            method.Parameters.Add(obj);
+
+            CodeEventReferenceExpression newEventRef = new CodeEventReferenceExpression(
+              new CodeThisReferenceExpression(), newEvent.Name);
+
+            // Invoke the event with the parameters from the wrapped object event
+            CodeArgumentReferenceExpression eventArg = new CodeArgumentReferenceExpression("e");
+
+            var invoke = new CodeDelegateInvokeExpression(newEventRef,
+                    new CodeExpression[] { new CodeSnippetExpression("null"), eventArg });
+
+            method.Statements.Add(invoke);
+        }
+
+        private void Converter_X(object sender, EventArgs e)
+        {
+            throw new NotImplementedException();
+        }
+
+        private CodeMemberEvent CreateEvent(string name)
+        {
+            var newEvent = new CodeMemberEvent();
+            newEvent.Name = name;
+            newEvent.Attributes = MemberAttributes.Public | MemberAttributes.Final;
+            return newEvent;
+        }
+
+        public Converter WithEvents()
+        {
+            // TODO:
+            if (Wrapped.IsRegMember(RegPairs, out _))
+                return this;
+
+            // Necessary because we are using ActionProxy to sub to wrapped obj events
+            // TODO!!
+            //var pmi = @"PluginManager.Interop";
+            //if (!CompilerParams.ReferencedAssemblies.Cast<string>().Any(x => x.Contains(pmi)))
+            //    CompilerParams.ReferencedAssemblies.Add(pmi + ".dll");
+
+            foreach (var e in Wrapped.GetEvents())
+            {
+                var eventName = e.Name;
+                var eventType = e.EventHandlerType
+                  .GetGenericArguments()
+                  .FirstOrDefault();
+
+                // Creates an Action event that doesn't require ActionProxy when subscribing
+                var newEvent = CreateEvent(eventName);
+
+                // Create method a which gets called when the Action event fires, and forwards the event to the normal C# event
+                string methodName = "Forward" + eventName + "Event";
+                CodeMemberMethod newMethod = CodeDomEx.CreateMethod(methodName, typeof(void));
+
+                if (eventType == null)
+                    AddVoidActionEvent(newEvent, newMethod);
+                else
+                    AddActionEventWithRetVal(newEvent, eventType, newMethod);
+
+                Klass.Members.Add(newEvent);
+                Klass.Members.Add(newMethod);
+
+                // Add statements to the constructor to invoke the new event when the event in the
+                // wrapped object fires.
+
+                var actionProxyType = eventType == null
+                  ? "SuperMemoAssistant.Sys.Remoting.ActionProxy"
+                  : $"SuperMemoAssistant.Sys.Remoting.ActionProxy<{eventType.FullName}>";
+
+                CodeDelegateCreateExpression createDelegate1 = new CodeDelegateCreateExpression(
+                new CodeTypeReference(actionProxyType), new CodeThisReferenceExpression(), methodName);
+
+                CodeEventReferenceExpression actionEventRef = new CodeEventReferenceExpression(
+                  WrappedRef, eventName);
+
+                // Attaches an EventHandler delegate pointing to TestMethod to the TestEvent event.
+                CodeAttachEventStatement attachStatement1 = new CodeAttachEventStatement(actionEventRef, createDelegate1);
+
+                Constructor.Statements.Add(attachStatement1);
+
+            }
+            AddedEvents = true;
+            return this;
+        }
         public Converter WithMethods()
         {
             if (!AddedMethods)
