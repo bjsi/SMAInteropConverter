@@ -1,4 +1,5 @@
 ﻿using Microsoft.CSharp;
+using Namotion.Reflection;
 using SMAInteropConverter.Helpers;
 using System;
 using System.CodeDom;
@@ -29,12 +30,14 @@ namespace SMAInteropConverter
 
         private CompilerParameters CompilerParams { get; } = new CompilerParameters { GenerateInMemory = true, GenerateExecutable = false };
         private Action<string> Logger { get; }
+        private string XmlDocsPath { get; }
 
-        public Converter(List<RegistryType> regTypes, Type wrapped, Action<string> logger = null)
+        public Converter(List<RegistryType> regTypes, Type wrapped, string xmlDocsPath, Action<string> logger = null)
             : base(wrapped.GetSvcName(), wrapped.GetSvcNamespace())
         {
             this.RegPairs = regTypes;
             this.Wrapped = wrapped;
+            this.XmlDocsPath = xmlDocsPath;
 
             Logger = logger == null
                 ? s => Console.WriteLine(s)
@@ -152,7 +155,6 @@ namespace SMAInteropConverter
             return new CodeVariableReferenceExpression(thisVarDeclaration.Name);
         }
 
-        // TODO: IEnumerable<IElement> etc.
         private void ConvertReturnedProperty(CodeMemberMethod method, Type retType, CodePropertyReferenceExpression prop)
         {
             if (retType.IsRegMember(RegPairs, out var regPair))
@@ -161,16 +163,11 @@ namespace SMAInteropConverter
                 method.Statements.Add(new CodeMethodReturnStatement(idRef));
                 method.ReturnType = new CodeTypeReference(typeof(int));
             }
-            else if (retType.Name == "IEnumerable`1") // TODO
+            else if (retType.IsGenericType && retType.GetGenericTypeDefinition() == typeof(IEnumerable<>) && retType.GetGenericArguments()[0].IsRegMember(RegPairs, out _))
             {
-                //if (retType.GetIEnumerableTypeArgs().First().IsRegMember(RegPairs, out _))
-                //{
-                //    method.Statements.Add(new CodeMethodReturnStatement(new CodeSnippetExpression()));
-                //}
-                //else
-                //{
-                    method.Statements.Add(new CodeMethodReturnStatement(prop));
-                //}
+                method.Statements.Add(new CodeMethodReturnStatement(new CodeSnippetExpression(prop.PropertyName + ".Select(x => x.Id)")));
+                method.ReturnType = new CodeTypeReference(typeof(IEnumerable<int>));
+                AddImportIfNotExists("System.Linq");
             }
             else
             {
@@ -317,9 +314,16 @@ namespace SMAInteropConverter
             }
         }
 
+        private string GetDocsFor(MemberInfo member)
+        {
+            return member.GetXmlDocsElement(XmlDocsPath)?.ToString() ?? "";
+        }
+
         private void ConvertMethod(MethodInfo info)
         {
             var method = CodeDomEx.CreateMethod(info.Name, info.ReturnType);
+            method.Comments.Add(new CodeCommentStatement(GetDocsFor(info)));
+
             var targetMethodRef = new CodeMethodReferenceExpression(WrappedRef, info.Name);
             var targetMethodArgs = new List<CodeExpression>();
             var retType = info.ReturnType;
@@ -368,6 +372,12 @@ namespace SMAInteropConverter
             Klass.Members.Add(method);
         }
 
+        private void AddImportIfNotExists(string name)
+        {
+            if (!Namespace.Imports.Cast<CodeNamespaceImport>().Any(x => x.Namespace == name))
+                Namespace.Imports.Add(new CodeNamespaceImport(name));
+        }
+
         private void ConvertReturnedInvoke(CodeMemberMethod method, Type retType, CodeMethodInvokeExpression invoke)
         {
             if (retType.IsRegMember(RegPairs, out _))
@@ -380,6 +390,17 @@ namespace SMAInteropConverter
                 method.Statements.Add(assignment);
                 method.Statements.Add(new CodeMethodReturnStatement(prop));
                 method.ReturnType = new CodeTypeReference(typeof(int));
+            }
+            else if (retType.IsGenericType && retType.GetGenericTypeDefinition() == typeof(IEnumerable<>) && retType.GetGenericArguments()[0].IsRegMember(RegPairs, out _))
+            {
+                var decl = new CodeVariableDeclarationStatement(new CodeTypeReference(retType), Namer.GetName());
+                var varRef = new CodeVariableReferenceExpression(decl.Name);
+                var assignment = new CodeAssignStatement(varRef, invoke);
+                method.Statements.Add(decl);
+                method.Statements.Add(assignment);
+                method.Statements.Add(new CodeMethodReturnStatement(new CodeSnippetExpression(decl.Name + ".Select(x => x.Id)")));
+                method.ReturnType = new CodeTypeReference(typeof(IEnumerable<int>));
+                AddImportIfNotExists("System.Linq");
             }
             else
             {

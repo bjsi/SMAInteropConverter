@@ -16,25 +16,27 @@ namespace SMAInteropConverter
             this.Version = version;
         }
 
-        public string GetDll()
+        public (string, string)? ExtractNugetPkgFiles()
         {
-            string stored = Path.Combine(InteropDir, Version + ".dll");
-            if (File.Exists(stored))
+            string storedDll = Path.Combine(InteropDir, Version + ".dll");
+            var storedDocs = Path.Combine(InteropDir, Version + ".xml");
+            if (File.Exists(storedDll) && File.Exists(storedDocs))
             {
-                return stored;
+                return (storedDll, storedDocs);
             }
 
             string nupkg = DownloadNupkg();
             if (string.IsNullOrWhiteSpace(nupkg))
                 return null;
 
-            string dll = ExtractDll(nupkg);
-            if (File.Exists(dll))
-                File.Move(dll, stored);
-            else
-                return null;
+            var (dll, docs) = ExtractDll(nupkg);
+            if (File.Exists(dll) && File.Exists(docs))
+            {
+                File.Move(dll, storedDll);
+                File.Move(docs, storedDocs);
+            }
 
-            return stored;
+            return (storedDll, storedDocs);
         }
 
         private string DownloadNupkg()
@@ -62,20 +64,13 @@ namespace SMAInteropConverter
             return tempDirectory;
         }
 
-        private string ExtractDll(string nupkgPath)
+        private (string, string) ExtractDll(string nupkgPath)
         {
-            try
-            {
-                var tmp = GetTemporaryDirectory();
-                System.IO.Compression.ZipFile.ExtractToDirectory(nupkgPath, tmp);
-                var pathToDll = "lib/net472/SuperMemoAssistant.Interop.dll";
-                return Path.Combine(tmp, pathToDll);
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine($"Failed to extract dll from nupkg with exception {e}");
-                return null;
-            }
+            var tmp = GetTemporaryDirectory();
+            System.IO.Compression.ZipFile.ExtractToDirectory(nupkgPath, tmp);
+            var pathToDll = "lib/net472/SuperMemoAssistant.Interop.dll";
+            var pathToXml = "lib/net472/SuperMemoAssistant.Interop.xml";
+            return (Path.Combine(tmp, pathToDll), Path.Combine(tmp, pathToXml));
         }
     }
 }

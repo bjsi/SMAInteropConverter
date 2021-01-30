@@ -7,7 +7,6 @@ namespace SMAInteropConverter.Helpers
 {
     public static class TypeEx
     {
-
         public static bool IsIEnumerableType(this Type type)
         {
             var iFaces = type.GetInterfaces();
