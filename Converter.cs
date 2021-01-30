@@ -342,6 +342,12 @@ namespace SMAInteropConverter
             {
                 foreach (var parameter in parameters)
                 {
+                    if (parameter.IsOut)
+                    {
+                        targetMethodArgs.Add(new CodeSnippetExpression("out _"));
+                        continue;
+                    }
+
                     if (parameter.ParameterType.IsRegMember(RegPairs, out _))
                     {
                         string x = ConvertParameter(parameter, method);
@@ -440,14 +446,8 @@ namespace SMAInteropConverter
         public Converter WithEvents()
         {
             // TODO:
-            if (Wrapped.IsRegMember(RegPairs, out _))
+            if (AddedEvents || Wrapped.IsRegMember(RegPairs, out _))
                 return this;
-
-            // Necessary because we are using ActionProxy to sub to wrapped obj events
-            // TODO!!
-            //var pmi = @"PluginManager.Interop";
-            //if (!CompilerParams.ReferencedAssemblies.Cast<string>().Any(x => x.Contains(pmi)))
-            //    CompilerParams.ReferencedAssemblies.Add(pmi + ".dll");
 
             foreach (var e in Wrapped.GetEvents())
             {

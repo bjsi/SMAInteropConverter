@@ -61,14 +61,12 @@ namespace SMAInteropConverter.Helpers
 
         public static List<MethodInfo> GetConvertableMethods(this Type type)
         {
-            // Skips out params
             // Skips special methods
             // Includes the most specialized methods of inherited interface types
 
             var methods = type
                 .GetMethods()
                 .Where(x => !x.IsSpecialName)
-                .Where(x => !x.GetParameters().Any(p => p.IsOut))
                 .ToList();
 
             if (type.IsInterface)
