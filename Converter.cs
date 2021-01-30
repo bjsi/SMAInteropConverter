@@ -40,7 +40,6 @@ namespace SMAInteropConverter
                 ? s => Console.WriteLine(s)
                 : logger;
 
-            // TODO: UI 
             if (!Wrapped.IsRegMember(regTypes, out _) && !Wrapped.IsReg(regTypes, out _) && !Wrapped.Name.Contains("IElementWdw"))
                 WrappedRef = AddConstructorInitializedField(Wrapped);
 
@@ -344,7 +343,10 @@ namespace SMAInteropConverter
                 {
                     if (parameter.IsOut)
                     {
-                        targetMethodArgs.Add(new CodeSnippetExpression("out _"));
+                        var paramType = parameter.ParameterType;
+                        var decl = new CodeVariableDeclarationStatement(new CodeTypeReference(paramType.GetElementType()), Namer.GetName());
+                        method.Statements.Add(decl);
+                        targetMethodArgs.Add(new CodeSnippetExpression("out " + decl.Name));
                         continue;
                     }
 

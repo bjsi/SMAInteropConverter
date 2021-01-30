@@ -22,6 +22,20 @@ namespace SMAInteropConverter.Helpers
             }
             return false;
         }
+        // From: https://stackoverflow.com/questions/2448800/given-a-type-instance-how-to-get-generic-type-name-in-c
+        // Other solutions available if this doesn't work
+        public static string ToGenericTypeString(this Type t)
+        {
+            if (!t.IsGenericType)
+                return t.Name;
+            string genericTypeName = t.GetGenericTypeDefinition().Name;
+            genericTypeName = genericTypeName.Substring(0,
+                genericTypeName.IndexOf('`'));
+            string genericArgs = string.Join(",",
+                t.GetGenericArguments()
+                    .Select(ta => ToGenericTypeString(ta)).ToArray());
+            return genericTypeName + "<" + genericArgs + ">";
+        }
 
         public static HashSet<Type> GetIEnumerableTypeArgs(this Type type)
         {
